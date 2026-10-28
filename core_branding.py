@@ -1,0 +1,28 @@
+"""Branding constants for the HOPELESS identity."""
+from __future__ import annotations
+
+from pathlib import Path
+
+BOT_NAME = "HOPELESS"
+BOT_VERSION = "1.0.0"
+# One line, lowercase, shown on the help home page. Change it here and it updates everywhere.
+BOT_DESCRIPTION = "security-first discord bot. abandon all hope, nukers."
+ACCENT_COLOR = 0x9B111E  # deep red
+
+ASSETS_DIR = Path(__file__).resolve().parent
+BANNER_FILENAME = "hopeless_banner.jpg"
+BANNER_PATH = ASSETS_DIR / BANNER_FILENAME
+BANNER_ATTACHMENT_URL = f"attachment://{BANNER_FILENAME}"
+
+
+def has_banner() -> bool:
+    return BANNER_PATH.is_file()
+
+
+def banner_file():
+    """A fresh discord.File for the help banner, or None when the asset is missing."""
+    if not has_banner():
+        return None
+    import discord  # imported lazily so pure-logic modules stay importable without discord.py
+
+    return discord.File(BANNER_PATH, filename=BANNER_FILENAME)
