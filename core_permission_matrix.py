@@ -23,6 +23,7 @@ MODULE_DEFAULT = {
     "moderation": Rule(Level.MODERATOR, None, True), "automod": Rule(Level.ADMIN, None, True),
     "welcome": Rule(Level.ADMIN), "tickets": Rule(Level.ADMIN, None, True), "voice": Rule(Level.ADMIN),
     "prestige": Rule(Level.ADMIN, None, True), "owner": Rule(Level.GLOBAL_OWNER, None, True),
+    "leveling": Rule(Level.ADMIN, None, True), "rep": Rule(Level.ADMIN, None, True), "owners": Rule(Level.SERVER_OWNER, None, True),
 }
 
 _MOD = lambda perm: Rule(Level.MODERATOR, perm, True)  # noqa: E731
@@ -33,12 +34,16 @@ OVERRIDES: dict[str, Rule] = {
     "jail": _MOD("manage_roles"), "unjail": _MOD("manage_roles"), "jlist": _MOD("manage_roles"),
     "lock": _MOD("manage_channels"), "unlock": _MOD("manage_channels"), "slowmode": _MOD("manage_channels"),
     "purge": _MOD("manage_messages"), "purgeuser": _MOD("manage_messages"),
-    "role": _MOD("manage_roles"), "roleall": _MOD("manage_roles"),
+    "role": _MOD("manage_roles"), "role add": _MOD("manage_roles"), "role remove": _MOD("manage_roles"), "roleall": _MOD("manage_roles"),
     "jailrole": Rule(Level.ADMIN, None, True), "autorole": Rule(Level.ADMIN, None, True),
     "setprefix": Rule(Level.ADMIN, None, True), "modrole": Rule(Level.ADMIN, None, True),
     "modrole add": Rule(Level.ADMIN, None, True), "modrole remove": Rule(Level.ADMIN, None, True),
     # utility
     "afk": Rule(Level.MEMBER),
+    "giveaway": Rule(Level.MEMBER), "giveaway start": _MOD("manage_guild"), "giveaway end": _MOD("manage_guild"), "giveaway reroll": _MOD("manage_guild"),
+    "poll": Rule(Level.MEMBER), "poll create": _MOD("manage_messages"), "poll close": _MOD("manage_messages"), "poll results": Rule(Level.MEMBER),
+    "rank": Rule(Level.MEMBER), "leaderboard": Rule(Level.MEMBER),
+    "extraowner": Rule(Level.ADMIN),
     "snipe": Rule(Level.MODERATOR, "manage_messages"), "editsnipe": Rule(Level.MODERATOR, "manage_messages"),
     "clearsnipe": Rule(Level.MODERATOR, "manage_messages"),
     # tickets

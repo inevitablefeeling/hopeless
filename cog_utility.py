@@ -18,7 +18,8 @@ from core_embeds import BRAND, SILVER, SUCCESS, error_embed, info_embed, ok_embe
 from core_emoji import ICONS
 from core_formatting import format_duration, long_duration, truncate
 from core_invite import invite_url
-from core_ui_v2 import send_card
+import core_branding as _branding
+from core_ui_v2 import send_card, send_note
 from svc_log_service import plain
 from svc_snipe_service import SnipedMessage
 
@@ -89,6 +90,8 @@ class Utility(commands.Cog):
     async def on_message(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot or message.webhook_id is not None:  # bots and webhooks never count
             return
+        if self.bot.globals.ban_for(message.author.id):
+            return
         afk = self.bot.afk
         guild_id = message.guild.id
 
@@ -96,33 +99,33 @@ class Utility(commands.Cog):
         if record is not None and afk.should_auto_clear(record):
             await afk.clear(guild_id, message.author.id)
             try:
-                await send_card(message, reply=True, mention_author=False, delete_after=20, **self._afk_cleared(message.author, record))
+                await send_note(message, self._afk_cleared_text(message.author, record), color=SUCCESS, reply=True, mention_author=False, delete_after=15)
             except discord.HTTPException:
                 pass
 
-        away_list: list[tuple[str, str]] = []
+        lines: list[str] = []
         for user in message.mentions[:5]:
             if user.id == message.author.id or user.bot:
                 continue
             target = afk.get(guild_id, user.id)
             if target is not None and afk.notice_allowed(message.channel.id, user.id):
                 away = (discord.utils.utcnow() - target.since).total_seconds()
-                away_list.append((discord.utils.escape_markdown(user.display_name),
-                                  f"{plain(target.reason, 150)}\naway for {long_duration(away)} • since {discord.utils.format_dt(target.since, 'R')}"))
-        if away_list:
+                lines.append(f"**{discord.utils.escape_markdown(user.display_name)}** is AFK: `{self._clean(target.reason)}` (for {long_duration(away)})")
+        if lines:
             try:
-                await send_card(message, reply=True, mention_author=False, delete_after=30,
-                                title="USER IS AFK" if len(away_list) == 1 else "THESE MEMBERS ARE AFK",
-                                description="They'll see your message when they're back." if len(away_list) == 1 else "",
-                                color=SILVER, footer="Presence System", fields=away_list)
+                await send_note(message, "\n".join(lines), color=SILVER, reply=True, mention_author=False, delete_after=20)
             except discord.HTTPException:
                 pass
 
     @staticmethod
-    def _afk_cleared(member: discord.abc.User, record) -> dict:
+    def _clean(reason: str) -> str:
+        """A reason that can't break out of the inline-code style or ping anyone."""
+        return plain(reason, 150).replace("`", "'") or "AFK"
+
+    def _afk_cleared_text(self, member: discord.abc.User, record) -> str:
         away = (discord.utils.utcnow() - record.since).total_seconds()
-        return dict(title="AFK STATUS CLEARED", description=f"Welcome back, {member.mention}.\nYour AFK status has been removed.", color=SUCCESS,
-                    footer="Presence System", fields=[("Previous reason", plain(record.reason, 200)), ("Duration", long_duration(away))])
+        return (f"{_branding.WHITECHECK} Welcome back {member.mention}, your AFK was removed. "
+                f"You were away for {long_duration(away)} (status was `{self._clean(record.reason)}`).")
 
     # --- afk ---------------------------------------------------------------------------------
     @commands.hybrid_command(name="afk", description="Set your AFK status. Talk again to clear it.")
@@ -132,14 +135,12 @@ class Utility(commands.Cog):
         if reason and reason.strip().lower() in {"off", "clear", "back"}:
             cleared = await self.bot.afk.clear(ctx.guild.id, ctx.author.id)
             if cleared:
-                await send_card(ctx, ephemeral=True, delete_after=20, **self._afk_cleared(ctx.author, cleared))
+                await send_note(ctx, self._afk_cleared_text(ctx.author, cleared), color=SUCCESS, delete_after=15)
             else:
-                await ctx.send(embed=info_embed(None, "You weren't AFK."), ephemeral=True, delete_after=10)
+                await send_note(ctx, "You weren't AFK.", ephemeral=True, delete_after=10)
             return
         record = await self.bot.afk.set(ctx.guild.id, ctx.author.id, reason)
-        await send_card(ctx, ephemeral=True, delete_after=15, title="AFK STATUS SET", description=f"{ctx.author.mention} is now away.", color=SILVER,
-                        footer="Presence System", fields=[("Reason", plain(record.reason, 200)), ("Since", discord.utils.format_dt(record.since, "R")),
-                                                          ("Clears", "when you next send a message")])
+        await send_note(ctx, f"{_branding.WHITECHECK} {ctx.author.mention} **You're now AFK** with the status: `{self._clean(record.reason)}`", color=SUCCESS)
 
     # --- avatar / banner ---------------------------------------------------------------------
     @commands.hybrid_command(name="avatar", aliases=["av"], description="Show a user's avatar")

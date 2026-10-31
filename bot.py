@@ -15,7 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import ConfigError, Settings, load_settings
-from core_checks import global_ban_gate
+from core_checks import global_ban_gate, rate_gate
 from core_command_registry import registry
 from core_emoji import ICONS, sync_application_emojis
 from core_error_handling import handle_app_command_error, handle_command_error
@@ -26,6 +26,8 @@ import db_repositories as repos
 from db_connection import Database
 from db_migrations import run_migrations
 from svc_afk_service import AfkService
+from svc_activity_service import ActivityService
+from svc_extra_owner_service import ExtraOwnerService
 from svc_global_service import GlobalService
 from svc_log_service import LogService
 from svc_permission_service import PermissionService
@@ -39,7 +41,7 @@ log = logging.getLogger("hopeless.bot")
 
 EXTENSIONS = (
     "cog_help", "cog_moderation", "cog_whitelist", "cog_utility", "cog_staff", "cog_logging_module",
-    "cog_welcome", "cog_antinuke", "cog_automod", "cog_tickets", "cog_voice", "cog_prestige", "cog_setup", "cog_globaladmin",
+    "cog_welcome", "cog_antinuke", "cog_automod", "cog_tickets", "cog_voice", "cog_prestige", "cog_setup", "cog_globaladmin", "cog_engage", "cog_leveling", "cog_rep", "cog_extraowners",
 )
 STATS_FLUSH_SECONDS = 60
 SNIPE_PRUNE_SECONDS = 300
@@ -89,6 +91,7 @@ class HopelessBot(commands.Bot):
         intents = discord.Intents.default()
         intents.members = True  # privileged: enable "Server Members Intent" in the developer portal
         intents.message_content = True  # privileged: enable "Message Content Intent" as well
+        intents.presences = settings.presence_intent  # privileged and OFF by default: needed only for status rep
         super().__init__(
             command_prefix=_prefix_callable,
             intents=intents,
@@ -107,10 +110,14 @@ class HopelessBot(commands.Bot):
         self.afk = AfkService(stores.afk)
         self.globals = GlobalService(db, self.permissions)  # global bans, global staff permissions, audit
         self.staffroles = StaffRoleService(db)  # per-server moderator roles
+        self.activity = ActivityService(db)  # message counts and XP
+        self.extraowners = ExtraOwnerService(db)  # server-scoped extra owners (never global)
         self.add_check(global_ban_gate)  # prefix commands, aliases and hybrid slash commands
+        self.add_check(rate_gate)  # a few commands per few seconds per member
         self.stats = StatsService(stores.usage)
         self.snipes = SnipeService()
         self.logs = LogService(db)
+        self.logs.bot = self  # lets the log webhook use the bot's name and avatar
         self.icons = ICONS  # the shared resolver that embeds and views read from
         self._emoji_synced = False
         self.started_at = datetime.now(timezone.utc)
@@ -143,6 +150,10 @@ class HopelessBot(commands.Bot):
             await self.globals.load()
         except Exception:  # a problem here must not stop the bot from starting; bans simply aren't enforced until it loads
             log.warning("could not load global administration data", exc_info=True)
+        try:
+            await self.extraowners.load()
+        except Exception:
+            log.warning("could not load extra owners", exc_info=True)
         await self.afk.load()
         for extension in EXTENSIONS:
             await self.load_extension(extension)

@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import core_branding as branding
+from core_checks import can_manage_server
 from core_embeds import BRAND, ERROR, WARNING, error_embed, footer, info_embed, ok_embed, system_embed, warn_embed
 from core_emoji import ICONS
 from core_errors import InvalidInput
@@ -563,7 +564,7 @@ class Tickets(commands.Cog):
     def _manager(self, ctx: commands.Context) -> None:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not ctx.author.guild_permissions.manage_guild:
+        if not can_manage_server(ctx.bot, ctx.author):
             raise commands.MissingPermissions(["manage_guild"])
 
     @commands.hybrid_command(name="psetup", description="One-click ticket setup with a preview")
@@ -798,7 +799,8 @@ class _DesignModal(discord.ui.Modal):
             text = error.user_message
         else:
             log.warning("ticket designer modal failed", exc_info=error)
-            text = "Something went wrong saving that."
+            import core_messages as plain_messages
+            text = plain_messages.try_again()
         if interaction.response.is_done():
             await interaction.followup.send(embed=error_embed(text), ephemeral=True)
         else:
@@ -1048,7 +1050,7 @@ class TicketDesigner(discord.ui.View):
             self.add_item(button)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.user_id and interaction.user.guild_permissions.manage_guild:  # re-checked on every press
+        if interaction.user.id == self.user_id and can_manage_server(self.cog.bot, interaction.user):  # re-checked on every press
             return True
         await interaction.response.send_message(embed=error_embed("This designer belongs to someone else, or you no longer have Manage Server.", title="Permission denied"), ephemeral=True)
         return False

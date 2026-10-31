@@ -25,7 +25,7 @@ def ensure_security_admin(ctx: commands.Context) -> bool:
     allowed = is_server_security_admin(
         is_guild_owner=ctx.guild.owner_id == member.id,
         has_administrator=member.guild_permissions.administrator,
-    )
+    ) or ctx.bot.extraowners.contains(ctx.guild.id, member.id)
     if not allowed:
         raise commands.CheckFailure(
             "Only the server owner or members with the Administrator permission can change security settings."
@@ -53,6 +53,7 @@ def facts_for(bot, user, guild=None, mod_roles=()) -> authz.Facts:
         global_role=role.value if role is not None else None,
         global_perms=bot.globals.perms_of(user.id),
         is_guild_owner=bool(guild is not None and guild.owner_id == user.id),
+        is_extra_owner=bool(guild is not None and bot.extraowners.contains(guild.id, user.id)),
         has_administrator=bool(member is not None and member.guild_permissions.administrator),
         discord_perms=perms,
         in_mod_role=bool(member is not None and any(r.id in set(mod_roles) for r in member.roles)),
@@ -122,4 +123,28 @@ async def global_ban_gate(ctx: commands.Context) -> bool:
     message = ctx.bot.globals.ban_message(ctx.author.id)
     if message:
         raise GloballyBanned(message)
+    return True
+
+
+def can_manage_server(bot, member) -> bool:
+    """Manage Server for config commands: the permission, Administrator, the server owner or a server extra owner."""
+    perms = member.guild_permissions
+    return bool(perms.manage_guild or perms.administrator or member.guild.owner_id == member.id or bot.extraowners.contains(member.guild.id, member.id))
+
+
+# ---------------------------------------------------------------------------------------------
+# Rate limit: a member can run a few commands in a short window; past that they are told when to try again.
+# ---------------------------------------------------------------------------------------------
+COMMAND_RATE = (3, 6.0)  # (commands, seconds) per member
+_rate = commands.CooldownMapping.from_cooldown(COMMAND_RATE[0], COMMAND_RATE[1], commands.BucketType.user)
+
+
+async def rate_gate(ctx: commands.Context) -> bool:
+    """Bot-wide check for prefix commands, aliases and hybrid slash commands. The bot owner is never limited."""
+    if ctx.bot.permissions.is_owner(ctx.author.id) or ctx.message is None:
+        return True
+    bucket = _rate.get_bucket(ctx.message)
+    retry_after = bucket.update_rate_limit() if bucket is not None else None
+    if retry_after:
+        raise commands.CommandOnCooldown(bucket, retry_after, commands.BucketType.user)
     return True

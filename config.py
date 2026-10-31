@@ -22,6 +22,7 @@ class Settings:
     sync_guild_id: Optional[int] = None
     log_level: str = "INFO"
     default_prefix: str = DEFAULT_PREFIX
+    presence_intent: bool = False  # ENABLE_PRESENCE_INTENT=1, only after turning on "Presence Intent" in the Developer Portal
 
     def __repr__(self) -> str:  # never leak the token or database password into logs
         return (
@@ -80,4 +81,5 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         support_url=support_url,
         sync_guild_id=sync_guild_id,
         log_level=log_level,
+        presence_intent=(env.get("ENABLE_PRESENCE_INTENT") or "").strip().lower() in ("1", "true", "yes", "on"),
     )

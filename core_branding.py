@@ -4,9 +4,11 @@ from __future__ import annotations
 from pathlib import Path
 
 BOT_NAME = "HOPELESS"
-BOT_VERSION = "1.0.0"
+BOT_VERSION = "1.1.0"
 # One line, lowercase, shown on the help home page. Change it here and it updates everywhere.
-BOT_DESCRIPTION = "security-first discord bot. abandon all hope, nukers."
+TAGLINE = "for those who abandoned hope"
+BOT_DESCRIPTION = "security-first moderation and anti-nuke bot"
+WHITECHECK = "<a:vnx_whitecheck:1565301514711465989>"  # the success mark used in short confirmations
 ACCENT_COLOR = 0x9B111E  # deep red
 
 ASSETS_DIR = Path(__file__).resolve().parent

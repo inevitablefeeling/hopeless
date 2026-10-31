@@ -32,6 +32,7 @@ class Facts:
     global_role: Optional[str] = None  # "administrator" | "moderator" | None
     global_perms: frozenset = frozenset()
     is_guild_owner: bool = False
+    is_extra_owner: bool = False  # owner-level on THIS server only; never global
     has_administrator: bool = False
     discord_perms: frozenset = frozenset()
     in_mod_role: bool = False
@@ -41,12 +42,12 @@ class Facts:
 
 def is_server_admin(f: Facts) -> bool:
     """Server configuration tier: owner, Administrator or Manage Server."""
-    return f.is_guild_owner or f.has_administrator or "manage_guild" in f.discord_perms
+    return f.is_guild_owner or f.is_extra_owner or f.has_administrator or "manage_guild" in f.discord_perms
 
 
 def is_security_admin(f: Facts) -> bool:
     """Security-sensitive tier (antinuke, whitelist, logging): owner or Administrator only."""
-    return f.is_guild_owner or f.has_administrator
+    return f.is_guild_owner or f.is_extra_owner or f.has_administrator
 
 
 def can_moderate(f: Facts, perm: Optional[str]) -> bool:

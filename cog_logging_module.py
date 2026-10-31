@@ -1,7 +1,9 @@
-"""Logging module: two standard channels, server-logs and security-logs."""
+"""Logging module: exactly two channels, #logs for ordinary server events and #security-logs for security incidents."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Optional
 
 import discord
@@ -11,7 +13,7 @@ from discord.ext import commands
 from core_checks import ensure_security_admin
 from core_embeds import error_embed, info_embed, ok_embed
 from core_errors import InvalidInput
-from core_log_routing import CHANNELS, CHANNEL_NAMES
+from core_log_routing import CHANNELS, CHANNEL_NAMES, DeleteEntry, pick_deleter
 from svc_log_service import SERVER_EVENTS, plain, who
 from view_confirm import ask
 
@@ -25,6 +27,7 @@ CATEGORY_NAME = "Logs"
 class LoggingModule(commands.Cog, name="Logging"):
     def __init__(self, bot: "HopelessBot") -> None:
         self.bot = bot
+        self._tasks: set = set()  # keeps background log tasks alive until they finish
 
     async def cog_check(self, ctx: commands.Context) -> bool:
         return ensure_security_admin(ctx)
@@ -49,6 +52,7 @@ class LoggingModule(commands.Cog, name="Logging"):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, attach_files=True),
         }
         results, ids = [], {}
+        results.append("old per-topic log channels (message-logs, member-logs ...) are left alone; I just don't use them any more")
         category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
         try:
             if category is None:
@@ -68,12 +72,11 @@ class LoggingModule(commands.Cog, name="Logging"):
                     continue
             ids[key] = channel.id
         if ids:
-            extra = {k: v for k, v in ids.items() if k not in ("server", "security")}
-            await self.bot.logs.save_channels(guild.id, ids.get("server"), ids.get("security"), extra)
-            results.append(f"{len(ids)} log channels are connected")
+            await self.bot.logs.save_channels(guild.id, ids.get("server"), ids.get("security"), {})
+            results.append(f"connected #{CHANNEL_NAMES['server']} and #{CHANNEL_NAMES['security']}")
         return results
 
-    @commands.hybrid_command(name="setuplogs", description="Create the private log channels")
+    @commands.hybrid_command(name="setuplogs", description="Create the private #logs and #security-logs channels")
     @commands.guild_only()
     async def setuplogs(self, ctx: commands.Context) -> None:
         embed = info_embed("Logging setup", "\n".join(f"• {line}" for line in self.plan_setup(ctx.guild)))
@@ -102,14 +105,38 @@ class LoggingModule(commands.Cog, name="Logging"):
     async def _skip_channel(self, guild: discord.Guild, channel_id: int) -> bool:
         return await self.bot.logs.is_log_channel(guild.id, channel_id)
 
+    async def _deleter_id(self, guild: discord.Guild, author_id: int, channel_id: int) -> Optional[int]:
+        """Who deleted a message, from a matching audit-log entry only (author + channel + timing). None means Unknown."""
+        if not guild.me.guild_permissions.view_audit_log:
+            return None
+        entries = []
+        try:
+            async for entry in guild.audit_logs(limit=8, action=discord.AuditLogAction.message_delete):
+                extra_channel = getattr(getattr(entry, "extra", None), "channel", None)
+                entries.append(DeleteEntry(entry.id, entry.user_id or 0, getattr(entry.target, "id", None),
+                                           getattr(extra_channel, "id", None), entry.created_at.timestamp()))
+        except discord.HTTPException:
+            return None
+        return pick_deleter(entries, author_id=author_id, channel_id=channel_id, now_ts=time.time())
+
+    async def _log_delete(self, message: discord.Message) -> None:
+        guild = message.guild
+        await asyncio.sleep(1.5)  # the audit-log entry appears a moment after the event
+        deleter_id = await self._deleter_id(guild, message.author.id, message.channel.id)
+        deleter = guild.get_member(deleter_id) if deleter_id else None
+        text = plain(message.content, 1500) if message.content else "(no text)"
+        extras = [("Attachments", str(len(message.attachments)))] if message.attachments else []
+        await self.bot.logs.server(
+            guild, "message_delete", f"Message deleted in #{plain(message.channel.name, 80)}", text, author=message.author, ident=message.author.id,
+            fields=[("Message ID", str(message.id)), ("Deleted by", who(deleter) if deleter else (f"user {deleter_id}" if deleter_id else "Unknown")), *extras])
+
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot or await self._skip_channel(message.guild, message.channel.id):
             return
-        await self.bot.logs.server(message.guild, "message_delete", "Message deleted", fields=[
-            ("Author", who(message.author)), ("Channel", f"#{plain(message.channel.name, 80)}"),
-            ("Content", message.content or "(no text)"),
-        ])
+        task = asyncio.create_task(self._log_delete(message))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message) -> None:
@@ -117,20 +144,18 @@ class LoggingModule(commands.Cog, name="Logging"):
             return
         if await self._skip_channel(before.guild, before.channel.id):
             return
-        await self.bot.logs.server(before.guild, "message_edit", "Message edited", fields=[
-            ("Author", who(before.author)), ("Channel", f"#{plain(before.channel.name, 80)}"),
-            ("Before", before.content or "(empty)"), ("After", after.content or "(empty)"),
-        ])
+        await self.bot.logs.server(before.guild, "message_edit", f"Message edited in #{plain(before.channel.name, 80)}", author=before.author,
+                                   ident=before.author.id, fields=[("Before", before.content or "(empty)"), ("After", after.content or "(empty)"),
+                                                                    ("Message ID", str(before.id))])
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        await self.bot.logs.server(member.guild, "member_join", "Member joined", fields=[
-            ("Member", who(member)), ("Account created", discord.utils.format_dt(member.created_at, "R")),
-        ])
+        await self.bot.logs.server(member.guild, "member_join", "Member joined", f"{plain(member.name, 80)} joined the server.", author=member,
+                                   ident=member.id, fields=[("Account created", discord.utils.format_dt(member.created_at, "R"))])
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
-        await self.bot.logs.server(member.guild, "member_leave", "Member left", fields=[("Member", who(member))])
+        await self.bot.logs.server(member.guild, "member_leave", "Member left", f"{plain(member.name, 80)} left the server.", author=member, ident=member.id)
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -144,7 +169,7 @@ class LoggingModule(commands.Cog, name="Logging"):
         if removed:
             changes.append(("Roles removed", ", ".join(removed)))
         if changes:
-            await self.bot.logs.server(after.guild, "member_update", "Member updated", fields=[("Member", who(after)), *changes])
+            await self.bot.logs.server(after.guild, "member_update", "Member updated", author=after, ident=after.id, fields=changes)
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role) -> None:
@@ -188,13 +213,23 @@ class LoggingModule(commands.Cog, name="Logging"):
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
         if before.channel == after.channel or member.bot:
             return
+        name = plain(member.name, 60)
         if before.channel is None:
-            text = f"joined {plain(after.channel.name)}"
+            title, text, color = "Member joined voice channel", f"**{name}** joined #{plain(after.channel.name)}", 0x2E9E5B
         elif after.channel is None:
-            text = f"left {plain(before.channel.name)}"
+            title, text, color = "Member left voice channel", f"**{name}** left #{plain(before.channel.name)}", 0xC0262D
         else:
-            text = f"moved {plain(before.channel.name)} → {plain(after.channel.name)}"
-        await self.bot.logs.server(member.guild, "voice", "Voice activity", fields=[("Member", who(member)), ("Action", text)])
+            title, text, color = "Member moved voice channel", f"**{name}** moved from #{plain(before.channel.name)} to #{plain(after.channel.name)}", 0x3B6FD4
+        await self.bot.logs.server(member.guild, "voice", title, text, author=member, ident=member.id, color=color)
+
+    @commands.Cog.listener()
+    async def on_user_update(self, before: discord.User, after: discord.User) -> None:
+        """Avatar changes, shown in every server that shares this member and has logs set up."""
+        if before.display_avatar == after.display_avatar or after.bot:
+            return
+        for guild in after.mutual_guilds:
+            await self.bot.logs.server(guild, "avatar", "Avatar update", f"{after.mention}", author=after, ident=after.id,
+                                       thumbnail=after.display_avatar.url, color=0x3B6FD4)
 
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild: discord.Guild, before, after) -> None:
@@ -218,11 +253,11 @@ class LoggingModule(commands.Cog, name="Logging"):
 
     @commands.Cog.listener()
     async def on_member_ban(self, guild: discord.Guild, user: discord.User) -> None:
-        await self.bot.logs.security(guild, "Member banned", fields=[("User", who(user))])
+        await self.bot.logs.server(guild, "moderation", "Member banned", f"{plain(user.name, 80)} was banned.", author=user, ident=user.id)
 
     @commands.Cog.listener()
     async def on_member_unban(self, guild: discord.Guild, user: discord.User) -> None:
-        await self.bot.logs.security(guild, "Member unbanned", fields=[("User", who(user))])
+        await self.bot.logs.server(guild, "moderation", "Member unbanned", f"{plain(user.name, 80)} was unbanned.", author=user, ident=user.id)
 
 
     @commands.hybrid_group(name="alertrole", fallback="list", description="Roles pinged for urgent security alerts")

@@ -140,3 +140,48 @@ def recent_ids(entries: list[tuple[float, int]], now: float, window: float = RES
 def is_urgent(level: "Level") -> bool:
     """Urgent = the second incident or worse. A single incident is only recorded and nobody is pinged."""
     return level in (Level.ALERT, Level.PUNISH)
+
+
+# --- snapshot safety --------------------------------------------------------------------------------------
+class SnapshotGuard:
+    """Keeps the last known good snapshot from being overwritten by attack damage or by a restoration.
+
+    While an incident is suspected (an untrusted or unidentified actor changed something) and while a restoration
+    is running, snapshots are not refreshed. After either, a quiet period passes before they resume.
+    """
+
+    def __init__(self, quiet: float = 600.0) -> None:
+        self.quiet = quiet
+        self._until: dict[int, float] = {}
+        self._restoring: set[int] = set()
+
+    def mark_incident(self, guild_id: int, now: float) -> None:
+        self._until[guild_id] = max(self._until.get(guild_id, 0.0), now + self.quiet)
+
+    def begin_restore(self, guild_id: int) -> None:
+        self._restoring.add(guild_id)
+
+    def end_restore(self, guild_id: int, now: float) -> None:
+        self._restoring.discard(guild_id)
+        self.mark_incident(guild_id, now)
+
+    def can_snapshot(self, guild_id: int, now: float) -> bool:
+        return guild_id not in self._restoring and now >= self._until.get(guild_id, 0.0)
+
+
+def restore_order(items: list[dict]) -> list[dict]:
+    """Roles first (channel overwrites refer to them), then categories, then other channels, each by position."""
+    def rank(item: dict) -> tuple[int, int]:
+        if item.get("_type") == "role":
+            return (0, item.get("position", 0))
+        return (1 if item.get("kind") == "category" else 2, item.get("position", 0))
+    return sorted(items, key=rank)
+
+
+def resolve_parent(parent_old_id: Optional[int], existing_ids: set[int], id_map: dict[int, int]) -> Optional[int]:
+    """The id of the category a restored channel should go in: the old one if it still exists, else its recreated copy."""
+    if parent_old_id is None:
+        return None
+    if parent_old_id in existing_ids:
+        return parent_old_id
+    return id_map.get(parent_old_id)

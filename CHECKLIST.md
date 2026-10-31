@@ -54,12 +54,12 @@ All modules are written, plus the second-round redesign: a permission model with
 
 Command: `python -m unittest discover -s tests -t .`
 
-- **Ran and passed:** 202 tests (structured project and upload edition give the same result).
+- **Ran and passed:** 270 tests (273 run, 3 skipped because they need discord.py). The structured project and the upload edition give the same result. Several rules were broken on purpose to prove the tests fail when they should.
 - **Ran and failed:** none.
 - **Skipped here (need discord.py and asyncpg):** 3 smoke tests in `tests/test_discord_glue.py` (load every cog, registry parity, help panel).
-- **Static checks that ran clean:** every file compiles; no undefined names; every `from x import y` and every `module.attribute` on project modules resolves; no duplicate command names or aliases; the registry matches the commands the cogs define (151 prefix commands, 143 slash paths, 79 top-level slash commands, limit 100).
-- **Bugs found and fixed by those checks this round:** a broken import in the upload edition (a comment after an import confused the file-flattening script) that would have crashed every moderation check.
-- **Not run:** anything against real Discord or PostgreSQL. Cogs, views, the new card layout (Components V2) and the new SQL (migration `0004_redesign.sql`, checked by hand against the earlier schema) have not run.
+- **Static checks that ran clean:** every file compiles; no undefined names; every `from x import y` and every `module.attribute` on project modules resolves; no duplicate command names or aliases; the registry matches the commands the cogs define (192 prefix commands, 184 slash paths, 99 of Discord's 100 top-level slash commands).
+- **Bugs found and fixed by those checks:** a broken import in the upload edition (a comment after an import confused the file-flattening script); a missing import in the role command; log cards that would have silently dropped ticket-transcript attachments; and an error-wording test that was fooled by stale bytecode.
+- **Not run (needs live Discord and PostgreSQL):** every cog, view and SQL statement; Components V2 messages, including buttons inside containers and webhook delivery of V2; DynamicItem buttons restored after a restart; server-tag and custom-status detection; the antinuke restoration; audit-log matching for message deletions; the new migrations `0004_redesign.sql` and `0005_community.sql` (checked by hand against the earlier schema).
 
 ## Limitations and decisions
 
@@ -79,3 +79,25 @@ Command: `python -m unittest discover -s tests -t .`
 - Global bans stop bot use only; they never ban from a Discord server.
 - Autorole's root cause on your server could not be confirmed from here. It now logs and explains every failure in the security log, so the next failure names its reason.
 - Unfinished or unverified items are marked [~] or [ ] above.
+
+## Added in this round
+| Feature | Built | Pure logic tested | Live-tested |
+|---|---|---|---|
+| Role command (`role @m add @r`, `role add @m @r`, `role remove @m @r`, by mention or name) | [x] | [~] hierarchy rules reuse the tested moderation checks | [~] |
+| Help panel (Components V2, no emojis, real counts) | [x] | [x] counts, pages, text budget, no emoji | [~] |
+| AFK one-line notes | [x] | [x] duration wording | [~] |
+| Two log channels via a webhook, who-deleted-it attribution | [x] | [x] attribution rules | [~] |
+| Antinuke snapshot guard, ordered restoration with categories | [x] | [x] guard, ordering, parent mapping | [~] |
+| Giveaways (role and message requirements, rerolls, restart-safe) | [x] | [x] eligibility, winners, rerolls | [~] |
+| Polls (ties, duplicate votes, optional changing, restart-safe) | [x] | [x] options, tally, ties, vote rules | [~] |
+| Reputation: status and server tag, automatic removal | [x] | [x] matching, grant/remove plan | [~] |
+| Leveling and message counts | [x] | [x] curve matches real cards, cooldown, level roles | [~] |
+| Extra owners (server-scoped) | [x] | [x] no global power | [~] |
+| Plain error wording and per-member rate limit | [x] | [x] variety, no repeats, bold seconds | [~] |
+
+## More limitations
+- Verification (a verify button) and the other bots' extras you screenshotted that are not listed above are not built yet.
+- A deleted message's author and content are shown only if the message was in the bot's cache; "Deleted by" is shown only when an audit-log entry matches the author, the channel and the timing, otherwise it says Unknown (deleting your own message creates no audit entry).
+- Antinuke can recreate deleted channels and roles, but not their messages, and members have to be given a recreated role again.
+- If Discord refuses a Components V2 message, giveaways and polls fall back to a classic embed with the same buttons.
+- Tag rep and status rep never act on members who look offline, because their status can't be read.

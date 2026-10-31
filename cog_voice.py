@@ -20,6 +20,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core_checks import can_manage_server
 from core_embeds import NEUTRAL, error_embed, info_embed, ok_embed
 from core_emoji import ICONS
 from core_errors import InvalidInput
@@ -127,7 +128,7 @@ class PickRegion(discord.ui.View):
         try:
             await channel.edit(rtc_region=None if value == "auto" else value, reason="voice room region")
         except discord.HTTPException:
-            await interaction.response.edit_message(content="Discord rejected that region.", view=None)
+            await interaction.response.edit_message(content="I couldn't change the region. Try again.", view=None)
             return
         await interaction.response.edit_message(content=f"Region set to {value}.", view=None)
 
@@ -356,7 +357,7 @@ class Voice(commands.Cog):
                     await self._set_owner(channel, row["owner_id"], member)
                     await finish(f"{member.display_name} now owns the room.")
         except discord.HTTPException:
-            await finish("Discord rejected that. Check that I have Manage Channels and Move Members.")
+            await finish("I couldn't do that. Check that I have Manage Channels and Move Members.")
 
     # --- waiting room ------------------------------------------------------------------------
     async def _toggle_waiting(self, interaction: discord.Interaction, channel: discord.VoiceChannel, row) -> None:
@@ -486,7 +487,7 @@ class Voice(commands.Cog):
     async def cog_check(self, ctx: commands.Context) -> bool:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not ctx.author.guild_permissions.manage_guild:
+        if not can_manage_server(ctx.bot, ctx.author):
             raise commands.MissingPermissions(["manage_guild"])
         return True
 
@@ -542,7 +543,7 @@ class Voice(commands.Cog):
                 await interface.send(embed=self._panel_embed(), view=VoicePanelView(self))
                 created.append("interface")
         except discord.HTTPException as exc:
-            raise InvalidInput(f"I couldn't create the channels (HTTP {exc.status}). Give me the Manage Channels permission and try again.")
+            raise InvalidInput("I couldn't create the channels. Give me the Manage Channels permission and try again.")
         await self._save_many(guild.id, category_id=category.id, join_channel_id=join.id, interface_channel_id=interface.id)
         return category, join, interface, created
 

@@ -19,5 +19,7 @@ class InvalidInput(HopelessError):
 
 
 class DatabaseUnavailable(HopelessError):
-    def __init__(self, user_message: str = "The database is unavailable right now. Please try again in a moment.") -> None:
+    def __init__(self, user_message: str = "") -> None:
+        import core_messages as messages
+        user_message = user_message or messages.no_response()
         super().__init__(user_message)

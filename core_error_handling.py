@@ -14,6 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import core_messages as messages
 from core_embeds import deny_embed, error_embed
 from core_errors import HopelessError, NotAuthorized
 
@@ -71,19 +72,20 @@ def describe_error(error: BaseException, *, usage: Optional[str] = None) -> tupl
     if isinstance(error, commands.TooManyArguments):
         return f"That's too many arguments.{hint}", False
     if isinstance(error, (commands.CommandOnCooldown, app_commands.CommandOnCooldown)):
-        return f"Slow down. Try again in {error.retry_after:.0f}s.", False
+        return messages.cooldown(error.retry_after), False
     if isinstance(error, (commands.CheckFailure, app_commands.CheckFailure)):
         message = str(error)
         if not message or "check functions" in message:
             return "You can't use this command here.", False
         return message, False
     if isinstance(error, discord.Forbidden):
-        return "Discord won't let me do that. Check my permissions and that my role sits above the target.", False
+        return "I can't do that. Check my permissions and that my role is above the target.", False
     if isinstance(error, discord.NotFound):
         return "That no longer exists.", False
     if isinstance(error, discord.HTTPException):
-        return f"Discord rejected that request (HTTP {error.status}). Please try again.", False
-    return "Something went wrong on my side.", True
+        log.info("discord request failed with HTTP %s", error.status)
+        return messages.try_again(), False
+    return messages.try_again(), True
 
 
 def _embed_for(error: BaseException, text: str) -> discord.Embed:
@@ -111,11 +113,13 @@ async def handle_command_error(ctx: commands.Context, error: commands.CommandErr
             ctx.author.id,
             exc_info=_unwrap(error),
         )
-        text = f"{text} Error id `{error_id}`."
+        if ctx.bot.permissions.is_owner(ctx.author.id) or ctx.bot.permissions.global_role(ctx.author.id) is not None:
+            text = f"{text}\n-# error id `{error_id}`"  # only global staff see the id; it is always in the logs
     if text is None:
         return
     try:
-        await ctx.send(embed=_embed_for(error, text), ephemeral=True)
+        short_lived = isinstance(_unwrap(error), (commands.CommandOnCooldown, app_commands.CommandOnCooldown))
+        await ctx.send(embed=_embed_for(error, text), ephemeral=True, delete_after=6 if short_lived else None)
     except discord.HTTPException:
         log.warning("could not deliver an error message in channel %s", getattr(ctx.channel, "id", None))
 
@@ -134,7 +138,9 @@ async def handle_app_command_error(interaction: discord.Interaction, error: app_
             interaction.user.id,
             exc_info=_unwrap(error),
         )
-        text = f"{text} Error id `{error_id}`."
+        client = interaction.client
+        if client.permissions.is_owner(interaction.user.id) or client.permissions.global_role(interaction.user.id) is not None:
+            text = f"{text}\n-# error id `{error_id}`"
     if text is None:
         return
     try:

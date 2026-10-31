@@ -199,7 +199,7 @@ class Setup(commands.Cog):
         if choice is None or choice == 2:
             await ctx.send(embed=info_embed(None, "Cancelled. Nothing was changed."))
             return
-        await ctx.send(embed=info_embed(None, f"Applying {len(new)} item(s). I pace myself for Discord's rate limits, so this can take a minute."))
+        await ctx.send(embed=info_embed(None, f"Applying {len(new)} item(s). This can take a minute."))
         results = await self.apply_template(ctx.guild, data, actions, update_topics=choice == 1)
         await ctx.channel.send(embed=ok_embed(results))
 

@@ -1,6 +1,7 @@
 """Help module: the interactive panel and per-command lookup."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 import discord
@@ -11,10 +12,20 @@ import core_branding as branding
 from core_command_registry import registry
 from core_embeds import error_embed, info_embed
 from core_formatting import clean_inline
+from core_help_model import HOME
+from core_ui_v2 import send_note, v2_available
 import view_help_panel as help_panel
+from view_help_v2 import HelpLayout
 
 if TYPE_CHECKING:  # pragma: no cover
     from bot import HopelessBot
+
+
+log = logging.getLogger("hopeless.help")
+
+
+def help_v2_ok() -> bool:
+    return v2_available() and hasattr(discord.ui, "Select")
 
 
 class Help(commands.Cog):
@@ -31,6 +42,12 @@ class Help(commands.Cog):
         if command:
             await self._send_command_help(ctx, command, prefix)
             return
+        if help_v2_ok():
+            try:
+                await ctx.send(view=HelpLayout(self.bot, ctx.author.id, ctx.guild.id if ctx.guild else None, HOME))
+                return
+            except (AttributeError, TypeError, ValueError, discord.HTTPException):
+                log.warning("the V2 help panel failed; using the classic one", exc_info=True)
         embed, view = help_panel.render(
             self.bot, owner_id=ctx.author.id, guild_id=ctx.guild.id if ctx.guild else None, key=help_panel.HOME
         )
@@ -81,10 +98,7 @@ class Help(commands.Cog):
             return
         prefix = self._prefix(message.guild)
         try:
-            await message.reply(
-                embed=info_embed(None, f"My prefix here is `{prefix}`. Try `{prefix}help` or `/help`."),
-                mention_author=False,
-            )
+            await send_note(message, f"My prefix here is `{prefix}`. Try `{prefix}help` or `/help`.", reply=True, mention_author=False)
         except discord.HTTPException:
             pass
 

@@ -57,7 +57,7 @@ EMOJIS: dict[str, EmojiSpec] = {
 }
 
 # Icons with no custom emoji at all.
-UNICODE_ONLY: dict[str, str] = {"moderation": "🔨", "setup": "⚙️", "owner": "🔑"}
+UNICODE_ONLY: dict[str, str] = {"moderation": "🔨", "setup": "⚙️", "owner": "🔑", "giveaways": "🎁", "polls": "📊", "rep": "🏷️", "leveling": "📈", "owners": "🔑"}
 
 
 class EmojiResolver:

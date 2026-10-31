@@ -78,6 +78,8 @@ They are separate. Power in one never grants power in the other.
 | `purge` | moderator | Manage Messages | yes | yes | no | yes |
 | `purgeuser` | moderator | Manage Messages | yes | yes | no | yes |
 | `role` | moderator | Manage Roles | yes | yes | no | yes |
+| `role add` | moderator | Manage Roles | yes | yes | no | yes |
+| `role remove` | moderator | Manage Roles | yes | yes | no | yes |
 | `roleall` | moderator | Manage Roles | yes | yes | no | yes |
 | `autorole` | server administrator | - | no | yes | no | yes |
 | `setprefix` | server administrator | - | no | yes | no | yes |
@@ -106,6 +108,14 @@ They are separate. Power in one never grants power in the other.
 | `tutorial` | public | - | yes | yes | no | no |
 | `uptime` | public | - | yes | yes | no | no |
 | `userinfo` | public | - | yes | yes | no | no |
+| `giveaway` | member | - | yes | yes | no | no |
+| `giveaway start` | moderator | Manage Guild | no | yes | no | yes |
+| `giveaway end` | moderator | Manage Guild | no | yes | no | yes |
+| `giveaway reroll` | moderator | Manage Guild | no | yes | no | yes |
+| `poll` | member | - | yes | yes | no | no |
+| `poll create` | moderator | Manage Messages | yes | yes | no | yes |
+| `poll close` | moderator | Manage Messages | yes | yes | no | yes |
+| `poll results` | member | - | yes | yes | no | no |
 
 ## Automod
 
@@ -216,6 +226,52 @@ They are separate. Power in one never grants power in the other.
 | `template` | server owner or Administrator | - | no | no | no | yes |
 | `template save` | server owner or Administrator | - | no | no | no | yes |
 | `template apply` | server owner or Administrator | - | no | no | no | yes |
+
+## Leveling
+
+| Command | Who | Discord permission | Mods | Admins | Global | Logged |
+|---|---|---|---|---|---|---|
+| `rank` | member | - | yes | yes | no | no |
+| `leaderboard` | member | - | yes | yes | no | no |
+| `levelrole` | server administrator | - | no | yes | no | yes |
+| `levelrole add` | server administrator | - | no | yes | no | yes |
+| `levelrole remove` | server administrator | - | no | yes | no | yes |
+| `setlevellog` | server administrator | - | no | yes | no | yes |
+| `setlevellog reset` | server administrator | - | no | yes | no | yes |
+| `leveling` | server administrator | - | no | yes | no | yes |
+| `leveling enable` | server administrator | - | no | yes | no | yes |
+| `leveling disable` | server administrator | - | no | yes | no | yes |
+
+## Reputation
+
+| Command | Who | Discord permission | Mods | Admins | Global | Logged |
+|---|---|---|---|---|---|---|
+| `setreprole` | server administrator | - | no | yes | no | yes |
+| `setreptarget` | server administrator | - | no | yes | no | yes |
+| `setreptarget add` | server administrator | - | no | yes | no | yes |
+| `setreptarget remove` | server administrator | - | no | yes | no | yes |
+| `repstatus` | server administrator | - | no | yes | no | yes |
+| `rep` | server administrator | - | no | yes | no | yes |
+| `rep enable` | server administrator | - | no | yes | no | yes |
+| `rep disable` | server administrator | - | no | yes | no | yes |
+| `setreplog` | server administrator | - | no | yes | no | yes |
+| `repcheck` | server administrator | - | no | yes | no | yes |
+| `repscan` | server administrator | - | no | yes | no | yes |
+| `settagrole` | server administrator | - | no | yes | no | yes |
+| `reptag` | server administrator | - | no | yes | no | yes |
+| `reptag enable` | server administrator | - | no | yes | no | yes |
+| `reptag disable` | server administrator | - | no | yes | no | yes |
+| `settaglog` | server administrator | - | no | yes | no | yes |
+| `tagcheck` | server administrator | - | no | yes | no | yes |
+| `tagscan` | server administrator | - | no | yes | no | yes |
+
+## Extra Owners
+
+| Command | Who | Discord permission | Mods | Admins | Global | Logged |
+|---|---|---|---|---|---|---|
+| `extraowner` | server administrator | - | no | yes | no | no |
+| `extraowner add` | server owner | - | no | no | no | yes |
+| `extraowner remove` | server owner | - | no | no | no | yes |
 
 ## Global administration
 

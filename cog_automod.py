@@ -15,6 +15,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core_checks import can_manage_server
 from core_automod_logic import (
     RULE_DEFAULTS, count_mentions, disallowed_links, normalize_domain, validate_action,
 )
@@ -51,7 +52,7 @@ class Automod(commands.Cog):
     async def cog_check(self, ctx: commands.Context) -> bool:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not ctx.author.guild_permissions.manage_guild:
+        if not can_manage_server(ctx.bot, ctx.author):
             raise commands.MissingPermissions(["manage_guild"])
         return True
 

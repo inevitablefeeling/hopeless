@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from core_checks import can_manage_server
 from core_embeds import BRAND, info_embed, ok_embed
 from core_emoji import ICONS
 from core_errors import InvalidInput
@@ -47,7 +48,7 @@ class Welcome(commands.Cog):
     async def cog_check(self, ctx: commands.Context) -> bool:
         if ctx.guild is None:
             raise commands.NoPrivateMessage()
-        if not ctx.author.guild_permissions.manage_guild:
+        if not can_manage_server(ctx.bot, ctx.author):
             raise commands.MissingPermissions(["manage_guild"])
         return True
 

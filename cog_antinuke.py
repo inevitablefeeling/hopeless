@@ -22,6 +22,7 @@ from core_antinuke_logic import (
     MODULE_KEYS, PUNISHMENT_HELP, AuditCandidate, best_audit_match, dangerous_gained, decide, has_dangerous,
     is_urgent, module_display, recent_ids, skip_reason, validate_punishment,
 )
+from core_antinuke_logic import SnapshotGuard, resolve_parent, restore_order
 from core_checks import ensure_security_admin
 from core_embeds import NEUTRAL, info_embed, ok_embed, toggle_embed
 from core_emoji import ICONS
@@ -103,6 +104,10 @@ class Antinuke(commands.Cog):
         self._pending_restore: dict[tuple[int, int, str], list[tuple[float, int]]] = {}
         self._punished: dict[tuple[int, int], float] = {}
         self._snapshotted = False
+        self.guard = SnapshotGuard()  # protects the last known good snapshot
+        self._restore_locks: dict[int, asyncio.Lock] = {}
+        self._restored: set[tuple[int, int]] = set()
+        self._tasks: set = set()
 
     async def cog_load(self) -> None:
         for name, keys in SHORTCUTS.items():
@@ -180,6 +185,9 @@ class Antinuke(commands.Cog):
 
     # --- snapshots / recovery ----------------------------------------------------------------
     async def snapshot_guild(self, guild: discord.Guild) -> int:
+        if not self.guard.can_snapshot(guild.id, time.time()):
+            log.info("snapshot skipped for %s: an incident or restoration is in progress", guild.id)
+            return 0
         rows = [(guild.id, "channel", c.id, snap_channel(c)) for c in guild.channels]
         rows += [(guild.id, "role", r.id, snap_role(r)) for r in guild.roles if not r.is_default() and not r.managed]
         import json
@@ -200,18 +208,40 @@ class Antinuke(commands.Cog):
         import json
         cfg = await self.config(guild_id)
         if cfg.enabled:
-            await self.bot.db.execute(
-                "INSERT INTO snapshots (guild_id, kind, target_id, data) VALUES ($1, $2, $3, $4::jsonb) "
-                "ON CONFLICT (guild_id, kind, target_id) DO UPDATE SET data = EXCLUDED.data, taken_at = now()",
-                guild_id, kind, target_id, json.dumps(data),
-            )
+            await self._write_snapshot(guild_id, kind, target_id, data)
 
-    async def _restore(self, guild: discord.Guild, kind: str, old_id: int) -> str:
+    async def _write_snapshot(self, guild_id: int, kind: str, target_id: int, data: dict) -> None:
         import json
-        row = await self.bot.db.fetchrow("SELECT data FROM snapshots WHERE guild_id = $1 AND kind = $2 AND target_id = $3", guild.id, kind, old_id)
+        await self.bot.db.execute(
+            "INSERT INTO snapshots (guild_id, kind, target_id, data) VALUES ($1, $2, $3, $4::jsonb) "
+            "ON CONFLICT (guild_id, kind, target_id) DO UPDATE SET data = EXCLUDED.data, taken_at = now()",
+            guild_id, kind, target_id, json.dumps(data),
+        )
+
+    def _snapshot_later(self, guild: discord.Guild, kind: str, target_id: int) -> None:
+        """Refresh one snapshot only after the audit log has had time to show whether the change was an attack."""
+        task = asyncio.create_task(self._snapshot_settled(guild, kind, target_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _snapshot_settled(self, guild: discord.Guild, kind: str, target_id: int) -> None:
+        await asyncio.sleep(AUDIT_DELAY + 4)
+        if not self.guard.can_snapshot(guild.id, time.time()):
+            return
+        obj = guild.get_channel(target_id) if kind == "channel" else guild.get_role(target_id)
+        if obj is not None:
+            await self._snapshot_one(guild.id, kind, target_id, snap_channel(obj) if kind == "channel" else snap_role(obj))
+
+    async def _load_snapshot(self, guild_id: int, kind: str, old_id: int) -> Optional[dict]:
+        import json
+        row = await self.bot.db.fetchrow("SELECT data FROM snapshots WHERE guild_id = $1 AND kind = $2 AND target_id = $3", guild_id, kind, old_id)
         if row is None:
-            return f"{kind} {old_id}: no snapshot was saved, so it can't be recreated"
-        data = json.loads(row["data"]) if isinstance(row["data"], str) else row["data"]
+            return None
+        return json.loads(row["data"]) if isinstance(row["data"], str) else dict(row["data"])
+
+    async def _restore(self, guild: discord.Guild, kind: str, old_id: int, data: dict, id_map: dict[int, int]) -> str:
+        """Recreate one role or channel from its snapshot. `id_map` maps old ids to recreated ones, so a restored
+        channel lands in its restored category and restored roles keep their channel permissions."""
         try:
             if kind == "role":
                 role = await guild.create_role(
@@ -222,14 +252,20 @@ class Antinuke(commands.Cog):
                     await role.edit(position=min(data["position"], guild.me.top_role.position - 1), reason="antinuke recovery")
                 except discord.HTTPException:
                     pass
+                id_map[old_id] = role.id
+                await self._write_snapshot(guild.id, "role", role.id, data)
                 await self.bot.db.execute("DELETE FROM snapshots WHERE guild_id = $1 AND kind = 'role' AND target_id = $2", guild.id, old_id)
                 return f"role **{plain(data['name'])}** was recreated (new id {role.id}; members must be given it again)"
             overwrites = {}
             for ow in data["overwrites"]:
-                target = guild.get_role(ow["id"]) if ow["type"] == "role" else guild.get_member(ow["id"])
+                if ow["type"] == "role":
+                    target = guild.get_role(ow["id"]) or guild.get_role(id_map.get(ow["id"], 0))
+                else:
+                    target = guild.get_member(ow["id"])
                 if target is not None:
                     overwrites[target] = discord.PermissionOverwrite.from_pair(discord.Permissions(ow["allow"]), discord.Permissions(ow["deny"]))
-            category = guild.get_channel(data["category_id"]) if data.get("category_id") else None
+            parent_id = resolve_parent(data.get("category_id"), {c.id for c in guild.categories}, id_map)
+            category = guild.get_channel(parent_id) if parent_id else None
             kw: dict[str, Any] = {"name": data["name"], "overwrites": overwrites, "reason": "antinuke recovery"}
             if data["kind"] == "category":
                 channel = await guild.create_category(**kw)
@@ -239,26 +275,56 @@ class Antinuke(commands.Cog):
             else:
                 channel = await guild.create_text_channel(category=category, topic=data.get("topic"), nsfw=bool(data.get("nsfw")),
                                                           slowmode_delay=data.get("slowmode") or 0, **kw)
+            try:
+                await channel.edit(position=data.get("position", 0), reason="antinuke recovery")
+            except discord.HTTPException:
+                pass
+            id_map[old_id] = channel.id
+            await self._write_snapshot(guild.id, "channel", channel.id, {**data, "category_id": category.id if category else None})
             await self.bot.db.execute("DELETE FROM snapshots WHERE guild_id = $1 AND kind = 'channel' AND target_id = $2", guild.id, old_id)
-            return f"channel **{plain(data['name'])}** was recreated (new id {channel.id}; the old messages and id can't be restored)"
+            where = f" in **{plain(category.name)}**" if category else ""
+            return f"{data['kind']} **{plain(data['name'])}** was recreated{where} (new id {channel.id}; the old messages and id can't be restored)"
         except discord.HTTPException as exc:
             return f"{kind} **{plain(data.get('name', old_id))}** could NOT be recreated (HTTP {exc.status})"
 
     async def _recover(self, guild: discord.Guild, actor_id: int) -> list[str]:
-        """Recreate what this actor deleted in the current burst. Older deletions were probably intentional."""
-        results, now = [], time.time()
-        cfg = await self.config(guild.id)
-        for (g, a, key), entries in list(self._pending_restore.items()):
-            if g != guild.id or a != actor_id:
-                continue
-            del self._pending_restore[(g, a, key)]
-            if not self.effective(cfg, key).restore:
-                continue
-            for old_id in recent_ids(entries, now):
-                if key != "role_delete" and await self._is_managed_channel(old_id):
-                    continue  # tickets and temporary voice rooms are meant to disappear
-                results.append(await self._restore(guild, "role" if key == "role_delete" else "channel", old_id))
-        return results
+        """Recreate what this actor deleted in the current burst (roles, then categories, then channels). Older
+        deletions were probably intentional. One restoration runs at a time per server and never twice for the same id."""
+        lock = self._restore_locks.setdefault(guild.id, asyncio.Lock())
+        async with lock:
+            self.guard.begin_restore(guild.id)
+            try:
+                results, now, wanted = [], time.time(), []
+                cfg = await self.config(guild.id)
+                for (g, a, key), entries in list(self._pending_restore.items()):
+                    if g != guild.id or a != actor_id:
+                        continue
+                    del self._pending_restore[(g, a, key)]
+                    if not self.effective(cfg, key).restore:
+                        continue
+                    for old_id in recent_ids(entries, now):
+                        kind = "role" if key == "role_delete" else "channel"
+                        if kind == "channel" and await self._is_managed_channel(old_id):
+                            continue  # tickets and temporary voice rooms are meant to disappear
+                        if (guild.id, old_id) in self._restored:
+                            continue
+                        wanted.append((kind, old_id))
+                items = []
+                for kind, old_id in wanted:
+                    data = await self._load_snapshot(guild.id, kind, old_id)
+                    if data is None:
+                        results.append(f"{kind} {old_id}: no snapshot was saved, so it can't be recreated")
+                    else:
+                        items.append({**data, "_type": kind, "_old": old_id})
+                id_map: dict[int, int] = {}
+                for item in restore_order(items):
+                    self._restored.add((guild.id, item["_old"]))
+                    results.append(await self._restore(guild, item["_type"], item["_old"], item, id_map))
+                if len(self._restored) > 500:
+                    self._restored.clear()
+                return results
+            finally:
+                self.guard.end_restore(guild.id, time.time())
 
     # --- attribution and evaluation ----------------------------------------------------------
     async def _attribute(self, guild: discord.Guild, mapping: dict, target_id: Optional[int], event_ts: float):
@@ -316,6 +382,8 @@ class Antinuke(commands.Cog):
         reason = skip_reason(actor_id=actor_id, bot_id=self.bot.user.id, guild_owner_id=guild.owner_id, exempt=exempt)
         title = TITLES[key]
         shield, siren = ICONS.get("antinuke"), ICONS.get("siren")
+        if reason is None or actor_id is None:  # an untrusted or unidentified actor: don't let this state overwrite the trusted snapshot
+            self.guard.mark_incident(guild.id, time.time())
         if reason:
             if actor_id is None:  # always stored; alerted only for high-signal events. Nobody is punished.
                 await self._incident(guild.id, key, None, target_id, Level.RECORD, f"{extra} | not punished: {reason}")
@@ -452,7 +520,7 @@ class Antinuke(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel) -> None:
-        await self._snapshot_one(channel.guild.id, "channel", channel.id, snap_channel(channel))
+        self._snapshot_later(channel.guild, "channel", channel.id)
         await self._handle(channel.guild, {A.channel_create: "channel_create"}, target_id=channel.id, extra=f"created {plain(channel.name)}")
 
     @commands.Cog.listener()
@@ -465,7 +533,7 @@ class Antinuke(commands.Cog):
     async def on_guild_channel_update(self, before, after) -> None:
         if await self._is_managed_channel(after.id):
             return
-        await self._snapshot_one(after.guild.id, "channel", after.id, snap_channel(after))
+        self._snapshot_later(after.guild, "channel", after.id)
         gained = []
         for target, ow in after.overwrites.items():
             old = before.overwrites_for(target).pair()[0].value
@@ -482,7 +550,7 @@ class Antinuke(commands.Cog):
     async def on_guild_role_create(self, role) -> None:
         if role.managed:
             return
-        await self._snapshot_one(role.guild.id, "role", role.id, snap_role(role))
+        self._snapshot_later(role.guild, "role", role.id)
         await self._handle(role.guild, {A.role_create: "role_create"}, target_id=role.id, extra=f"created {plain(role.name)}")
 
     @commands.Cog.listener()
@@ -495,7 +563,7 @@ class Antinuke(commands.Cog):
     async def on_guild_role_update(self, before, after) -> None:
         if after.managed:
             return
-        await self._snapshot_one(after.guild.id, "role", after.id, snap_role(after))
+        self._snapshot_later(after.guild, "role", after.id)
         gained = dangerous_gained(before.permissions.value, after.permissions.value)
         if gained:
             await self._handle(after.guild, {A.role_update: "role_permission_escalation"}, target_id=after.id,

@@ -9,13 +9,16 @@ A security-first Discord bot: Python 3.12, discord.py, PostgreSQL, deployable on
 | Module | What it does |
 |---|---|
 | Home | `help`: interactive panel with a module dropdown. It lists prefix commands only (slash versions still work, they just aren't shown) |
-| Antinuke | 25 protections driven by audit-log attribution, thresholds, punishments, snapshots and recovery |
+| Antinuke | 25 protections driven by audit-log attribution, thresholds, punishments. Snapshots keep the last known good state (never overwritten during an attack or a restoration); recovery restores roles first, then categories, then channels inside their categories, with permissions and positions |
 | Whitelist | scoped exemptions for users and roles (never a blanket "everything" switch) |
 | Moderation | ban, kick, softban, timeout, unban, unmute, jail (timed, restores roles), lock, purge, `role`, `roleall`, `autorole`, slowmode, per-server prefix, and `modrole` to limit moderation to chosen roles |
-| Utility | avatar, banner, server and user info, AFK (status cards with the previous reason and how long you were away), snipes (moderators only), bot stats |
+| Utility | avatar, banner, server and user info, AFK (a one-line status that clears when you talk again), snipes (moderators only), bot stats, **giveaways** and **polls** (optional required role and minimum message count, buttons that survive restarts, automatic ending) |
 | Automod | link, mention, spam, raid rules with per-rule exemptions |
 | Welcome | welcome, leave and DM messages as embeds you can customize (title, colour, footer, thumbnail, rules, banner image, or plain text), with a live preview (`setwelcome test`) |
-| Logging | `setuplogs` builds a private Logs category: message, member, server, voice, emoji, invite, ticket and security logs. Only urgent security alerts ping, and only the roles you choose with `alertrole` |
+| Logging | exactly two channels: `#logs` for ordinary events (messages deleted or edited with who deleted them when the audit log proves it, joins, leaves, roles, channels, voice, avatars) and `#security-logs` for antinuke alerts. Cards are posted by a "HOPELESS Logging" webhook so they look separate from the bot |
+| Leveling | XP for chatting, `rank`, `leaderboard`, `levelrole`, level-up cards, `setlevellog` |
+| Reputation | a role while a member's custom status contains your text or while they wear this server's tag, **removed again automatically** when they stop (`setreprole`, `setreptarget`, `rep`, `settagrole`, `reptag`, scans and checks) |
+| Extra Owners | `extraowner add/remove/list`: owner-level control of one server only, never global |
 | Tickets | fully customizable panels (`ticketdesign`: text, colour, banner, thumbnail, footer, button label/style/emoji, menu placeholder, categories you can add, edit, reorder, hide and remove, staff roles, ticket category, transcript channel, naming, limits, opening message, instructions), several panels per server, a live preview, private channels, claim, priority, private notes, transcripts. Closed tickets are deleted after 3 seconds by default (a transcript is attempted first and reported honestly) |
 | Voice | `jtc` is one command that creates the category, the join channel `j2c` and a `config` channel with the panel (`voicesetup category` now builds whatever is missing in that category too); join-to-create rooms and the full control panel (Name, Limit, Privacy, Waiting Room, Chat, Trust, Untrust, Invite, Kick, Region, Block, Unblock, Claim, Transfer, Delete). Staff acting on someone else's room need the real Discord permissions (Move Members to kick or move) |
 | Setup | `/setup` panel and server templates, always with a preview and confirmation |
@@ -27,6 +30,11 @@ Global staff are managed by the owner with slash commands: `/administrator add|r
 
 ## Things worth knowing
 
+- **Plain errors.** Unexpected errors just say "try again" or "the bot didn't respond", in a different wording each time. Running commands too fast gets "try this command again in **N seconds**" (3 commands per 6 seconds per member; the bot owner is never limited). Only the bot owner and global staff see an error id; it is always in the logs.
+- **Components V2.** Help, AFK, server info, stats, giveaways, polls, level-ups and the log cards are real Components V2 messages (a container with text, separators and buttons) with an automatic classic-embed fallback if Discord refuses them. Ticket, voice and designer panels stay classic.
+- **Status rep needs the Presence Intent.** Turn it on in the Developer Portal (Bot, then Privileged Gateway Intents) AND set the variable `ENABLE_PRESENCE_INTENT=1`. Without both the bot still starts normally, and `rep enable` explains what is missing. Server-tag rep reads the tag data Discord sends with members; it can't be seen for someone Discord doesn't send it for.
+- **Message counts start when tracking starts.** Discord has no historical message counter, so a "minimum messages" requirement counts from when the bot began tracking that member.
+- **Slash command limit.** Discord allows 100 top-level slash commands; HOPELESS uses 99. New features should join an existing group.
 - **Two separate permission systems.** Server roles (owner, Administrator, Manage Server, moderators, ticket staff, members) and bot-wide global staff never grant each other anything: a server owner is not a bot owner. Moderator roles (`modrole add @role`) only narrow who may moderate; the Discord permission is always still required. Details in `PERMISSIONS.md`.
 - **Snipe commands are moderator-only** now (they can reveal deleted messages). The restriction is one line per command if you prefer them public.
 - **Cards.** Info commands (AFK, server info, stats, staff list) use Discord's newer message layout when your discord.py supports it, and fall back to a normal embed automatically. Panels that carry buttons and menus (help, tickets, voice) stay classic embeds on purpose.
@@ -49,6 +57,8 @@ Python 3.12. `discord.py>=2.6,<3`, `asyncpg>=0.30,<1` (`requirements.txt`). The 
 
 ## Environment variables
 
+`ENABLE_PRESENCE_INTENT` (optional, `1` to turn on) is needed only for status rep, after enabling the Presence Intent in the Developer Portal.
+
 `DISCORD_TOKEN`, `BOT_OWNER_ID`, `DATABASE_URL` (required). `SUPPORT_URL`, `SYNC_GUILD_ID`, `LOG_LEVEL`, `LOG_FORMAT=json`, `NIXPACKS_PYTHON_VERSION=3.12` (optional). See `.env.example`. Never commit real values.
 
 ## Discord permissions by module
@@ -60,7 +70,10 @@ Python 3.12. `discord.py>=2.6,<3`, `asyncpg>=0.30,<1` (`requirements.txt`). The 
 | Antinuke | Administrator | View Audit Log, Manage Roles, Manage Channels, Manage Webhooks, Kick Members, Ban Members |
 | Moderation | the matching permission (Ban Members, Kick Members, Moderate Members, Manage Roles, Manage Channels, Manage Messages) | the same, plus a role above the target |
 | Automod, Welcome | Manage Server | Manage Messages, Moderate Members (automod); Send Messages, Embed Links (welcome) |
-| Logging | Administrator | Manage Channels (to create the channels), Send Messages, Embed Links |
+| Logging | exactly two channels: `#logs` for ordinary events (messages deleted or edited with who deleted them when the audit log proves it, joins, leaves, roles, channels, voice, avatars) and `#security-logs` for antinuke alerts. Cards are posted by a "HOPELESS Logging" webhook so they look separate from the bot |
+| Leveling | XP for chatting, `rank`, `leaderboard`, `levelrole`, level-up cards, `setlevellog` |
+| Reputation | a role while a member's custom status contains your text or while they wear this server's tag, **removed again automatically** when they stop (`setreprole`, `setreptarget`, `rep`, `settagrole`, `reptag`, scans and checks) |
+| Extra Owners | `extraowner add/remove/list`: owner-level control of one server only, never global |
 | Tickets | Manage Server | Manage Channels, Manage Roles |
 | Voice | Manage Server to set up. On someone else's room: Manage Channels, plus Move Members to kick, invite, block or use the waiting room | Manage Channels, Move Members |
 

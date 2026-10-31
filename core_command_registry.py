@@ -123,6 +123,23 @@ MODULES: tuple[ModuleSpec, ...] = (
         "explicit confirmation.",
         "You: Administrator or server owner. Me: depends on what you set up.",
     ),
+    ModuleSpec(
+        "leveling", "Leveling", "XP, ranks, leaderboard and level role rewards",
+        "Members earn XP for chatting (once a minute), level up, and can earn roles. The same tracker counts messages, "
+        "which giveaways and polls can require.",
+        "Most commands need nothing. Setup needs Manage Server. Me: Manage Roles for level roles.",
+    ),
+    ModuleSpec(
+        "rep", "Reputation", "Roles for a status or server tag, removed again when they stop",
+        "Give a role while a member's custom status contains your text or while they wear this server's tag, and take it "
+        "away automatically when they stop. Status rep needs the Presence Intent.",
+        "You: Manage Server. Me: Manage Roles.",
+    ),
+    ModuleSpec(
+        "owners", "Extra Owners", "Trusted people with owner-level control of this server only",
+        "Extra owners can manage this server's security and settings. They have no global power at all.",
+        "Adding or removing: the server owner only.",
+    ),
     ModuleSpec("owner", "Global administration", "Bot-wide tools for the bot owner and global staff",
                "Bot-wide powers: global bans, global staff permissions, the server list and the audit log. Server permissions never grant these.",
                "You: bot owner, or global staff holding the matching permission.", hidden=True),
@@ -172,7 +189,9 @@ moderation | xlock | lock | lock | - | Manage Channels | Lock a channel | I
 moderation | unlock | unlock | unlock | - | Manage Channels | Unlock a channel | I
 moderation | xpurge | purge | purge | clear | Manage Messages | Delete recent messages | I
 moderation | xpurgeuser | purgeuser | purgeuser | - | Manage Messages | Delete recent messages from one user | I
-moderation | xrole | role | role | - | Manage Roles | Add or remove a role | I
+moderation | xrole | role | role set | - | Manage Roles | Add or remove a role | I
+moderation | new | role add | role add | - | Manage Roles | Give a member a role. | I
+moderation | new | role remove | role remove | - | Manage Roles | Take a role from a member. | I
 moderation | xroleall | roleall | roleall | ra | Manage Roles | Add or remove a role for everyone | I
 moderation | xautorole | autorole | autorole | ar | Manage Roles | Choose roles given to new members | I
 moderation | xsetprefix | setprefix | setprefix | - | Manage Server | Set this server's command prefix | I
@@ -269,6 +288,45 @@ logging | new | alertrole | alertrole list | - | Administrator | Show the roles 
 logging | new | alertrole add | alertrole add | - | Administrator | Ping this role for urgent security alerts only. | I
 logging | new | alertrole remove | alertrole remove | - | Administrator | Stop pinging this role. | I
 
+utility | new | giveaway | giveaway list | - | None | Show the active giveaways in this server. | I
+utility | new | giveaway start | giveaway start | - | Manage Server | Start a giveaway (optional role and message requirements). | I
+utility | new | giveaway end | giveaway end | - | Manage Server | End a giveaway now and pick the winners. | I
+utility | new | giveaway reroll | giveaway reroll | - | Manage Server | Pick new winners for an ended giveaway. | I
+utility | new | poll | poll list | - | None | Show the open polls in this server. | I
+utility | new | poll create | poll create | - | Manage Messages | Create a poll (optional role and message requirements). | I
+utility | new | poll close | poll close | - | Manage Messages | Close a poll now and show the result. | I
+utility | new | poll results | poll results | - | None | Show a poll's current results. | I
+leveling | new | rank | rank | - | None | Show your rank card and level progress. | I
+leveling | new | leaderboard | leaderboard | lb | None | Show the server's top 10 by XP. | I
+leveling | new | levelrole | levelrole list | - | Manage Server | Show the level role rewards. | I
+leveling | new | levelrole add | levelrole add | - | Manage Server | Give a role at a level. | I
+leveling | new | levelrole remove | levelrole remove | - | Manage Server | Remove the role reward for a level. | I
+leveling | new | setlevellog | setlevellog set | - | Manage Server | Choose where level-up cards are posted. | I
+leveling | new | setlevellog reset | setlevellog reset | - | Manage Server | Post level-up cards where the member chatted. | I
+leveling | new | leveling | leveling status | - | Manage Server | Show whether leveling is on. | I
+leveling | new | leveling enable | leveling enable | - | Manage Server | Turn XP on. | I
+leveling | new | leveling disable | leveling disable | - | Manage Server | Turn XP off (message counts keep working). | I
+rep | new | setreprole | setreprole | - | Manage Server | Set the role given for status rep. | I
+rep | new | setreptarget | setreptarget list | - | Manage Server | Show the status targets. | I
+rep | new | setreptarget add | setreptarget add | - | Manage Server | Add a status target. | I
+rep | new | setreptarget remove | setreptarget remove | - | Manage Server | Remove a status target. | I
+rep | new | repstatus | repstatus | - | Manage Server | View the status rep configuration. | I
+rep | new | rep | rep status | - | Manage Server | View status rep, or turn it on or off. | I
+rep | new | rep enable | rep enable | - | Manage Server | Turn status rep on. | I
+rep | new | rep disable | rep disable | - | Manage Server | Turn status rep off. | I
+rep | new | setreplog | setreplog | - | Manage Server | Set the channel for status rep logs. | I
+rep | new | repcheck | repcheck | - | Manage Server | Check one member's status rep. | I
+rep | new | repscan | repscan | - | Manage Server | Scan online members for status rep and fix roles. | I
+rep | new | settagrole | settagrole | - | Manage Server | Set the role given for wearing this server's tag. | I
+rep | new | reptag | reptag status | - | Manage Server | View server tag rep, or turn it on or off. | I
+rep | new | reptag enable | reptag enable | - | Manage Server | Turn server tag rep on. | I
+rep | new | reptag disable | reptag disable | - | Manage Server | Turn server tag rep off. | I
+rep | new | settaglog | settaglog | - | Manage Server | Set the channel for server tag rep logs. | I
+rep | new | tagcheck | tagcheck | - | Manage Server | Check whether a member wears this server's tag. | I
+rep | new | tagscan | tagscan | - | Manage Server | Scan members for this server's tag and fix roles. | I
+owners | new | extraowner | extraowner list | - | Server owner | Show this server's extra owners. | I
+owners | new | extraowner add | extraowner add | - | Server owner | Make someone an extra owner of this server. | I
+owners | new | extraowner remove | extraowner remove | - | Server owner | Remove an extra owner. | I
 owner | new | gban | gban | - | Global staff (gban) | Globally ban a user from the bot (not from any server). | I
 owner | new | gunban | gunban | - | Global staff (gban) | Lift a global ban. | I
 owner | new | gbancheck | gbancheck | - | Global staff (gban) | Check whether a user is globally banned. | I

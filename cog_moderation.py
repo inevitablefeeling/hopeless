@@ -15,7 +15,7 @@ from core_embeds import info_embed, ok_embed
 from core_errors import InvalidInput
 from core_formatting import chunk_lines
 from core_moderation_checks import MAX_TIMEOUT_SECONDS, hierarchy_problem, parse_duration, roles_to_restore, short_duration
-from svc_log_service import who
+from svc_log_service import plain, who
 
 if TYPE_CHECKING:  # pragma: no cover
     from bot import HopelessBot
@@ -78,7 +78,7 @@ class Moderation(commands.Cog):
         if role.is_default() or role.managed:
             return "That role can't be assigned manually."
         if role >= guild.me.top_role:
-            return "That role is at or above my top role."
+            return "That role is at or above my top role. Move my role above it in Server Settings, then Roles."
         return None
 
     # --- ban / kick / softban / unban --------------------------------------------------------
@@ -369,22 +369,67 @@ class Moderation(commands.Cog):
         if ctx.author.id != ctx.guild.owner_id and role >= ctx.author.top_role:
             raise InvalidInput("That role is at or above your top role.")
 
-    @commands.hybrid_command(name="role", description="Add a role to a member, or remove it if they have it")
-    @app_commands.describe(member="Who", role="Which role")
+    async def _find_role(self, ctx: commands.Context, text: str) -> discord.Role:
+        """A role from a mention, an id or an unambiguous name (case-insensitive)."""
+        text = (text or "").strip()
+        if not text:
+            raise InvalidInput("Tell me which role. Example: `role @Nen add @BuenasDias`")
+        try:
+            return await commands.RoleConverter().convert(ctx, text)
+        except commands.BadArgument:
+            matches = [r for r in ctx.guild.roles if r.name.lower() == text.lower()]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                raise InvalidInput(f"More than one role is called **{plain(text, 60)}**. Mention it or use its ID.")
+            raise InvalidInput(f"I couldn't find a role called **{plain(text, 60)}**. Mention it or use its exact name.")
+
+    async def _apply_role(self, ctx: commands.Context, member: discord.Member, role: discord.Role, *, add: bool) -> None:
+        self._role_rules(ctx, role)
+        if member.id != ctx.author.id:
+            self._guard(ctx, member)
+        elif add and ctx.author.id != ctx.guild.owner_id and role.permissions > ctx.author.guild_permissions:
+            raise InvalidInput("You can't give yourself a role with more permissions than you have.")
+        if add and role in member.roles:
+            raise InvalidInput(f"{member.mention} already has {role.mention}.")
+        if not add and role not in member.roles:
+            raise InvalidInput(f"{member.mention} doesn't have {role.mention}.")
+        if add:
+            await member.add_roles(role, reason=self._reason(ctx, "role added"))
+            await self._done(ctx, "role_add", member, role.name, f"Role added to {member.mention}: {role.mention}")
+        else:
+            await member.remove_roles(role, reason=self._reason(ctx, "role removed"))
+            await self._done(ctx, "role_remove", member, role.name, f"Role removed from {member.mention}: {role.mention}")
+
+    @commands.hybrid_group(name="role", fallback="set", invoke_without_command=True, usage="@member add|remove @role",
+                           description="Add or remove a role: role @member add @role")
+    @app_commands.describe(member="Who", action="add or remove", role="Which role (mention or name)")
+    @app_commands.choices(action=[app_commands.Choice(name="add", value="add"), app_commands.Choice(name="remove", value="remove")])
     @commands.guild_only()
     @commands.has_permissions(manage_roles=True)
     @moderator("manage_roles")
     @commands.bot_has_permissions(manage_roles=True)
-    async def role(self, ctx: commands.Context, member: discord.Member, role: discord.Role) -> None:
-        self._role_rules(ctx, role)
-        if member.id != ctx.author.id:
-            self._guard(ctx, member)
-        if role in member.roles:
-            await member.remove_roles(role, reason=self._reason(ctx, "role removed"))
-            await self._done(ctx, "role_remove", member, role.name, f"Removed {role.mention} from **{member}**.")
-        else:
-            await member.add_roles(role, reason=self._reason(ctx, "role added"))
-            await self._done(ctx, "role_add", member, role.name, f"Gave {role.mention} to **{member}**.")
+    async def role(self, ctx: commands.Context, member: discord.Member, action: str, *, role: str) -> None:
+        action = action.lower()
+        if action not in ("add", "remove"):
+            raise InvalidInput("Say `add` or `remove`. Examples:\n`role @Nen add @BuenasDias`\n`role add @Nen @BuenasDias`")
+        await self._apply_role(ctx, member, await self._find_role(ctx, role), add=action == "add")
+
+    @role.command(name="add", description="Give a member a role")
+    @app_commands.describe(member="Who", role="Which role (mention or name)")
+    @commands.has_permissions(manage_roles=True)
+    @moderator("manage_roles")
+    @commands.bot_has_permissions(manage_roles=True)
+    async def role_add(self, ctx: commands.Context, member: discord.Member, *, role: str) -> None:
+        await self._apply_role(ctx, member, await self._find_role(ctx, role), add=True)
+
+    @role.command(name="remove", description="Take a role from a member")
+    @app_commands.describe(member="Who", role="Which role (mention or name)")
+    @commands.has_permissions(manage_roles=True)
+    @moderator("manage_roles")
+    @commands.bot_has_permissions(manage_roles=True)
+    async def role_remove(self, ctx: commands.Context, member: discord.Member, *, role: str) -> None:
+        await self._apply_role(ctx, member, await self._find_role(ctx, role), add=False)
 
     @commands.hybrid_command(name="roleall", aliases=["ra"], description="Give a role to everyone who lacks it")
     @app_commands.describe(role="Which role", who_gets_it="humans (default), bots or all")
@@ -404,7 +449,7 @@ class Moderation(commands.Cog):
             raise InvalidInput("Everyone eligible already has that role.")
         self._roleall_running.add(ctx.guild.id)
         try:
-            await ctx.send(embed=info_embed(None, f"Giving {role.mention} to {len(targets)} member(s). I go slowly to respect Discord's rate limits (about {len(targets) * 0.5 / 60:.0f} min)."))
+            await ctx.send(embed=info_embed(None, f"Giving {role.mention} to {len(targets)} member(s). This can take a while (about {len(targets) * 0.5 / 60:.0f} min)."))
             done = failed = 0
             for member in targets:
                 try:

@@ -71,3 +71,11 @@ On GitHub open a file, tap the pencil, change it, **Commit changes**. Railway re
 2. **If you already uploaded unpack.yml and Actions shows nothing**: it's sitting in the wrong place. Open it, tap the pencil, put the cursor at the very start of the name box, type `.github/workflows/` in front of `unpack.yml`, and commit. That moves it.
 3. Upload `hopeless-bot.zip` to the repo (Add file, Upload files). The workflow then runs by itself. You can also open the **Actions** tab, tap **Unpack HOPELESS**, then **Run workflow**.
 4. If it fails with a permissions message: repo Settings, Actions, General, Workflow permissions, **Read and write permissions**, Save, run it again.
+
+## Updating the bot when it runs on bot-hosting.net
+1. Upload the new files to your GitHub repo, replacing files with the same name and deleting nothing (new ones such as `0005_community.sql`, `cog_engage.py` and `core_messages.py` are added).
+2. In bot-hosting.net open your server and tap the restart button. "Pull automatically at every restart" fetches the new files and installs anything new.
+3. In the Console you should see `applying migrations` and then `ready as ...`.
+4. Optional, for status rep only: in the Discord Developer Portal turn on **Presence Intent** (Bot, then Privileged Gateway Intents), then add the variable `ENABLE_PRESENCE_INTENT` with the value `1` in the Environment tab and restart.
+5. To change the bot's picture: Developer Portal, your application, then the **Bot** tab (and **General Information** for the app icon), and upload the image there.
+6. Run `Csetuplogs` once so the logs go to `#logs` and `#security-logs`. The bot needs **Manage Webhooks** in that channel so the logs post as "HOPELESS Logging".
