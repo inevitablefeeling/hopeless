@@ -110,7 +110,7 @@ class HopelessBot(commands.Bot):
         self.afk = AfkService(stores.afk)
         self.globals = GlobalService(db, self.permissions)  # global bans, global staff permissions, audit
         self.staffroles = StaffRoleService(db)  # per-server moderator roles
-        self.activity = ActivityService(db)  # message counts and XP
+        self.activity_service = ActivityService(db)  # message counts and XP
         self.extraowners = ExtraOwnerService(db)  # server-scoped extra owners (never global)
         self.add_check(global_ban_gate)  # prefix commands, aliases and hybrid slash commands
         self.add_check(rate_gate)  # a few commands per few seconds per member
